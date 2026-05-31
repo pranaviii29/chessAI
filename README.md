@@ -1,4 +1,4 @@
-# ♟ Chess AI
+# Chess AI
 
 A terminal Chess AI written in pure Python 3. Human plays as White and the AI plays as Black.
 
@@ -175,9 +175,6 @@ Open `main.py` and change the `depth` number:
 
 ```python
 ai_move = AI.get_best_move(chessboard, depth=3)
-
----
-
 
 ## Supported Rules
 
