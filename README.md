@@ -196,25 +196,18 @@ Open `gui.py` (or `main.py` for terminal) and change the `depth` number:
 ```python
 ai_move = AI.get_best_move(chessboard, depth=3)
 ```
-
-| Depth | Speed | Strength |
-|-------|-------|----------|
-| `2` | Instant | Beginner |
-| `3` | 1–3 seconds | Intermediate *(default)* |
-| `4` | 10–20 seconds | Advanced |
-
 ---
 
 ## Supported Rules
 
-| Rule | Status |
-|------|--------|
-| All standard piece moves |
-| Castling — kingside and queenside | 
-| Pawn promotion — auto promotes to Queen | 
-| Check detection | 
-| Checkmate detection | 
-| Stalemate detection | 
+| Rule 
+|------
+| All standard piece moves 
+| Castling — kingside and queenside 
+| Pawn promotion — auto promotes to Queen 
+| Check detection 
+| Checkmate detection  
+| Stalemate detection  
 
 Note: En passant is not yet implemented 
 
