@@ -50,7 +50,7 @@ pip install pygame
 **Step 1: Clone the repo**
 
 ```bash
-git clone https://github.com/pranaviii29/chessAI.git
+git clone https://github.com/heyitspranaviii/chessAI.git
 cd chess-ai
 ```
 
