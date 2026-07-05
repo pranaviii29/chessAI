@@ -1,124 +1,141 @@
 """
+gui.py  —  Pygame GUI for Chess AI
+-------------------------------------
+Run with:   python gui.py
+
 Controls:
-  • Click a piece to select it  (green highlight)
-  • Click a highlighted square  to move there  (yellow dots)
-  • Click anywhere else         to deselect
-  • Press U                     to undo your last move + AI reply
-  • Press R                     to restart the game
-  • Press Q / close window      to quit
+  • Click a piece       to select it
+  • Click a green dot   to move there
+  • Click elsewhere     to deselect
+  • U                   undo last move + AI reply
+  • R                   restart
+  • Q / close window    quit
+
+New in this version:
+  • En passant is fully supported
+  • Promotion popup — choose Queen, Rook, Bishop, or Knight
 """
 
 import sys
 import threading
 import pygame
-import board as chessboard_module
-import pieces as pieces_module
+
+import board as chess_board
+import pieces
 from ai   import AI
 from move import Move
 
-WINDOW_WIDTH  = 720
-WINDOW_HEIGHT = 720
-BOARD_SIZE    = 8
-SQUARE_SIZE   = WINDOW_WIDTH // BOARD_SIZE   # 90 px
+BOARD_PX   = 640          # board area (square)
+SQUARE     = BOARD_PX // 8
+STATUS_H   = 44
+WIN_W      = BOARD_PX
+WIN_H      = BOARD_PX + STATUS_H
 
-# Colors
-COLOR_LIGHT      = (240, 217, 181)   # light square
-COLOR_DARK       = (181, 136,  99)   # dark square
-COLOR_SELECTED   = ( 20, 200,  80)   # selected piece square
-COLOR_MOVE_DOT   = (100, 200, 100)   # legal move dot
-COLOR_CAPTURE    = (220,  60,  60)   # capture highlight
-COLOR_CHECK      = (230,  30,  30)   # king in check
-COLOR_LAST_FROM  = (205, 210,  80)   # last move from-square tint
-COLOR_LAST_TO    = (205, 210,  80)   # last move to-square tint
-COLOR_TEXT_BG    = ( 40,  40,  40)
-COLOR_TEXT       = (255, 255, 255)
-COLOR_STATUS_WIN = ( 50, 200,  80)
-COLOR_STATUS_AI  = (255, 200,   0)
+LIGHT         = (240, 217, 181)
+DARK          = (181, 136,  99)
+SEL_COLOR     = ( 20, 200,  80, 160)
+DOT_COLOR     = (100, 200, 100)
+CAPTURE_COLOR = (220,  60,  60)
+CHECK_COLOR   = (230,  30,  30, 180)
+LAST_COLOR    = (205, 210,  80, 120)
+BAR_BG        = ( 40,  40,  40)
+WHITE_TEXT    = (255, 255, 255)
+GREY_TEXT     = (160, 160, 160)
+GREEN_TEXT    = ( 50, 200,  80)
+YELLOW_TEXT   = (255, 200,   0)
 
-# Unicode chess pieces  {(color, kind): unicode}
+# Promotion popup
+POPUP_BG      = ( 30,  30,  30)
+POPUP_BORDER  = (200, 200, 200)
+POPUP_HOVER   = ( 70,  70,  70)
+
 UNICODE = {
-    (pieces_module.Piece.WHITE, pieces_module.King.PIECE_TYPE):   '♔',
-    (pieces_module.Piece.WHITE, pieces_module.Queen.PIECE_TYPE):  '♕',
-    (pieces_module.Piece.WHITE, pieces_module.Rook.PIECE_TYPE):   '♖',
-    (pieces_module.Piece.WHITE, pieces_module.Bishop.PIECE_TYPE): '♗',
-    (pieces_module.Piece.WHITE, pieces_module.Knight.PIECE_TYPE): '♘',
-    (pieces_module.Piece.WHITE, pieces_module.Pawn.PIECE_TYPE):   '♙',
-    (pieces_module.Piece.BLACK, pieces_module.King.PIECE_TYPE):   '♚',
-    (pieces_module.Piece.BLACK, pieces_module.Queen.PIECE_TYPE):  '♛',
-    (pieces_module.Piece.BLACK, pieces_module.Rook.PIECE_TYPE):   '♜',
-    (pieces_module.Piece.BLACK, pieces_module.Bishop.PIECE_TYPE): '♝',
-    (pieces_module.Piece.BLACK, pieces_module.Knight.PIECE_TYPE): '♞',
-    (pieces_module.Piece.BLACK, pieces_module.Pawn.PIECE_TYPE):   '♟',
+    (pieces.Piece.WHITE, pieces.King.PIECE_TYPE):   '♔',
+    (pieces.Piece.WHITE, pieces.Queen.PIECE_TYPE):  '♕',
+    (pieces.Piece.WHITE, pieces.Rook.PIECE_TYPE):   '♖',
+    (pieces.Piece.WHITE, pieces.Bishop.PIECE_TYPE): '♗',
+    (pieces.Piece.WHITE, pieces.Knight.PIECE_TYPE): '♘',
+    (pieces.Piece.WHITE, pieces.Pawn.PIECE_TYPE):   '♙',
+    (pieces.Piece.BLACK, pieces.King.PIECE_TYPE):   '♚',
+    (pieces.Piece.BLACK, pieces.Queen.PIECE_TYPE):  '♛',
+    (pieces.Piece.BLACK, pieces.Rook.PIECE_TYPE):   '♜',
+    (pieces.Piece.BLACK, pieces.Bishop.PIECE_TYPE): '♝',
+    (pieces.Piece.BLACK, pieces.Knight.PIECE_TYPE): '♞',
+    (pieces.Piece.BLACK, pieces.Pawn.PIECE_TYPE):   '♟',
 }
 
+# Promotion options shown in the popup (in order)
+PROMO_OPTIONS = [pieces.Queen, pieces.Rook, pieces.Bishop, pieces.Knight]
+PROMO_SYMBOLS = {
+    pieces.Piece.WHITE: ['♕', '♖', '♗', '♘'],
+    pieces.Piece.BLACK: ['♛', '♜', '♝', '♞'],
+}
 
-#Coordinate helpers
+def to_pixel(x, y):
+    return x * SQUARE, (7 - y) * SQUARE
 
-def board_to_pixel(x, y):
-    """Board (x, y) → top-left pixel of that square."""
-    px = x * SQUARE_SIZE
-    py = (7 - y) * SQUARE_SIZE      # y=0 is rank 1 (bottom of screen)
-    return px, py
-
-def pixel_to_board(px, py):
-    """Mouse pixel → board (x, y)."""
-    x = px // SQUARE_SIZE
-    y = 7 - (py // SQUARE_SIZE)
-    return x, y
+def to_board(px, py):
+    return px // SQUARE, 7 - py // SQUARE
 
 class ChessGUI:
 
     def __init__(self):
         pygame.init()
-        self.screen  = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+        self.screen = pygame.display.set_mode((WIN_W, WIN_H))
         pygame.display.set_caption('Chess AI')
 
-        # Load fonts:try a system font that has chess glyphs
-        self.piece_font  = self._load_piece_font(int(SQUARE_SIZE * 0.78))
-        self.label_font  = pygame.font.SysFont('consolas', 16)
-        self.status_font = pygame.font.SysFont('consolas', 22, bold=True)
+        self.piece_font  = self._load_font(int(SQUARE * 0.78))
+        self.label_font  = pygame.font.SysFont('consolas', 15)
+        self.status_font = pygame.font.SysFont('consolas', 21, bold=True)
+        self.popup_font  = pygame.font.SysFont('consolas', 14)
 
         self.reset()
 
-    def reset(self):
-        self.chess_board  = chessboard_module.Board.new()
-        self.selected_sq  = None          # (x, y) of selected piece
-        self.legal_moves  = []            # legal moves for selected piece
-        self.last_move    = None          # (xfrom,yfrom,xto,yto) for highlighting
-        self.move_history = []            # for undo
-        self.status       = 'Your turn'   # status bar text
-        self.status_color = COLOR_TEXT
-        self.game_over    = False
-        self.ai_thinking  = False
-
-    def _load_piece_font(self, size):
-        # Try fonts that render Unicode chess symbols well
+    def _load_font(self, size):
         for name in ['segoeuisymbol', 'dejavusans', 'symbola', 'freesans', 'arial']:
             try:
-                font = pygame.font.SysFont(name, size)
-                if font:
-                    return font
+                f = pygame.font.SysFont(name, size)
+                if f:
+                    return f
             except Exception:
                 pass
         return pygame.font.SysFont(None, size)
 
+ 
+    def reset(self):
+        self.chess_board   = chess_board.Board.new()
+        self.selected      = None    # (x, y) of selected piece
+        self.legal_moves   = []      # legal moves for selected piece
+        self.last_move     = None    # (xfrom,yfrom,xto,yto) for highlight
+        self.history       = []      # list of moves played (for undo)
+        self.status        = 'Your turn'
+        self.status_color  = WHITE_TEXT
+        self.game_over     = False
+        self.ai_thinking   = False
+
+        # Promotion popup state
+        self.promo_pending = None    # Move waiting for piece choice
+        self.promo_rects   = []      # clickable rects in the popup
+        self.promo_color   = None    # color of the promoting pawn
+
     def run(self):
         clock = pygame.time.Clock()
-
         while True:
+            mx, my = pygame.mouse.get_pos()
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    pygame.quit()
-                    sys.exit()
+                    pygame.quit(); sys.exit()
 
                 if event.type == pygame.KEYDOWN:
                     self.handle_key(event.key)
 
-                if event.type == pygame.MOUSEBUTTONDOWN and not self.game_over and not self.ai_thinking:
-                    mx, my = pygame.mouse.get_pos()
-                    self.handle_click(pixel_to_board(mx, my))
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    if self.promo_pending:
+                        self.handle_promo_click(mx, my)
+                    elif not self.game_over and not self.ai_thinking:
+                        self.handle_click(to_board(mx, my))
 
-            self.draw()
+            self.draw(mx, my)
             clock.tick(60)
 
     def handle_key(self, key):
@@ -126,7 +143,7 @@ class ChessGUI:
             pygame.quit(); sys.exit()
         if key == pygame.K_r:
             self.reset()
-        if key == pygame.K_u and not self.ai_thinking:
+        if key == pygame.K_u and not self.ai_thinking and not self.promo_pending:
             self.undo()
 
     def handle_click(self, sq):
@@ -134,224 +151,264 @@ class ChessGUI:
         if not self.chess_board.in_bounds(x, y):
             return
 
-        piece = self.chess_board.get_piece(x, y)
-
         # If a piece is already selected, try to move it
-        if self.selected_sq:
-            moved = self.try_move(self.selected_sq, (x, y))
-            if moved:
-                self.selected_sq = None
+        if self.selected:
+            if self.try_move(self.selected, (x, y)):
+                self.selected    = None
                 self.legal_moves = []
                 return
 
         # Select a white piece
-        if piece != 0 and piece.color == pieces_module.Piece.WHITE:
-            self.selected_sq = (x, y)
-            all_moves        = self.chess_board.get_possible_moves(pieces_module.Piece.WHITE)
+        piece = self.chess_board.get_piece(x, y)
+        if piece != 0 and piece.color == pieces.Piece.WHITE:
+            self.selected    = (x, y)
+            all_moves        = self.chess_board.get_possible_moves(pieces.Piece.WHITE)
             self.legal_moves = [
                 m for m in all_moves
-                if m.xfrom == x and m.yfrom == y
-                and self._is_legal(m, pieces_module.Piece.WHITE)
+                if m.xfrom == x and m.yfrom == y and self.is_legal(m, pieces.Piece.WHITE)
             ]
         else:
-            self.selected_sq = None
+            self.selected    = None
             self.legal_moves = []
 
     def try_move(self, from_sq, to_sq):
-        """Try to move from from_sq to to_sq. Returns True if successful."""
         fx, fy = from_sq
         tx, ty = to_sq
 
         for move in self.legal_moves:
             if move.xto == tx and move.yto == ty:
-                self.chess_board.perform_move(move)
-                self.move_history.append(move)
-                self.last_move = (fx, fy, tx, ty)
+                piece = self.chess_board.get_piece(fx, fy)
 
-                # Check game over after human move
-                if self.check_game_over(pieces_module.Piece.BLACK):
+                # Check if this is a pawn promotion
+                promo_rank = 0 if piece.color == pieces.Piece.WHITE else 7
+                if piece.piece_type == pieces.Pawn.PIECE_TYPE and ty == promo_rank:
+                    # Show promotion popup before completing the move
+                    self.promo_pending = move
+                    self.promo_color   = piece.color
                     return True
 
-                # Let AI respond in a background thread so UI stays responsive
-                self.status       = 'AI is thinking...'
-                self.status_color = COLOR_STATUS_AI
-                self.ai_thinking  = True
-                threading.Thread(target=self.ai_move, daemon=True).start()
+                # Normal move (or en passant)
+                self.apply_move(move)
                 return True
 
         return False
 
-    def ai_move(self):
-        """Called in a background thread."""
-        move = AI.get_best_move(self.chess_board, depth=3)
+    def handle_promo_click(self, mx, my):
+        for i, rect in enumerate(self.promo_rects):
+            if rect.collidepoint(mx, my):
+                # Player chose a piece — complete the move
+                self.promo_pending.promotion_piece = PROMO_OPTIONS[i]
+                self.apply_move(self.promo_pending)
+                self.promo_pending = None
+                self.promo_rects   = []
+                self.promo_color   = None
+                return
 
+    def draw_promo_popup(self, mx, my):
+        """Draw a centered popup letting the player pick a promotion piece."""
+        option_size = 100
+        padding     = 16
+        total_w     = len(PROMO_OPTIONS) * option_size + padding * 2
+        total_h     = option_size + padding * 2 + 30
+
+        px = (WIN_W - total_w) // 2
+        py = (BOARD_PX - total_h) // 2
+
+        # Background
+        popup_rect = pygame.Rect(px, py, total_w, total_h)
+        pygame.draw.rect(self.screen, POPUP_BG, popup_rect, border_radius=10)
+        pygame.draw.rect(self.screen, POPUP_BORDER, popup_rect, 2, border_radius=10)
+
+        # Title
+        title = self.popup_font.render('Choose promotion piece:', True, WHITE_TEXT)
+        self.screen.blit(title, (px + padding, py + 8))
+
+        # Piece options
+        self.promo_rects = []
+        symbols = PROMO_SYMBOLS[self.promo_color]
+
+        for i, symbol in enumerate(symbols):
+            rx = px + padding + i * option_size
+            ry = py + 34
+            rect = pygame.Rect(rx, ry, option_size - 6, option_size - 6)
+            self.promo_rects.append(rect)
+
+            # Hover highlight
+            color = POPUP_HOVER if rect.collidepoint(mx, my) else (50, 50, 50)
+            pygame.draw.rect(self.screen, color, rect, border_radius=8)
+            pygame.draw.rect(self.screen, POPUP_BORDER, rect, 1, border_radius=8)
+
+            # Symbol
+            text = self.piece_font.render(symbol, True, WHITE_TEXT)
+            self.screen.blit(text, (rx + (option_size - 6 - text.get_width()) // 2,
+                                    ry + (option_size - 6 - text.get_height()) // 2))
+
+    # ── Apply move + trigger AI ───────────────────────────────────────────────
+
+    def apply_move(self, move):
+        self.last_move = (move.xfrom, move.yfrom, move.xto, move.yto)
+        self.chess_board.perform_move(move)
+        self.history.append(move)
+
+        if self.check_game_over(pieces.Piece.BLACK):
+            return
+
+        self.status      = 'AI is thinking...'
+        self.status_color = YELLOW_TEXT
+        self.ai_thinking  = True
+        threading.Thread(target=self.ai_turn, daemon=True).start()
+
+    def ai_turn(self):
+        move = AI.get_best_move(self.chess_board, depth=3)
         if move is None:
             self.game_over    = True
             self.status       = 'AI has no moves — You win!'
-            self.status_color = COLOR_STATUS_WIN
+            self.status_color = GREEN_TEXT
         else:
             self.last_move = (move.xfrom, move.yfrom, move.xto, move.yto)
             self.chess_board.perform_move(move)
-            self.move_history.append(move)
-            self.check_game_over(pieces_module.Piece.WHITE)
-
+            self.history.append(move)
+            self.check_game_over(pieces.Piece.WHITE)
         self.ai_thinking = False
 
     def undo(self):
-        """Undo AI move + human move."""
-        steps = min(2, len(self.move_history))
+        steps = min(2, len(self.history))
         if steps == 0:
             return
-        for _ in range(steps):
-            move = self.move_history.pop()
-            # Reverse the move manually by re-cloning from scratch
-            # Simple approach: replay all remaining history on a fresh board
-        # Rebuild board from history
-        self.chess_board = chessboard_module.Board.new()
-        history_copy     = self.move_history[:]
-        self.move_history = []
-        for m in history_copy:
+        # Rebuild board from scratch by replaying remaining history
+        keep = self.history[:-steps]
+        self.chess_board = chess_board.Board.new()
+        self.history     = []
+        for m in keep:
             self.chess_board.perform_move(m)
-            self.move_history.append(m)
+            self.history.append(m)
 
         self.last_move    = None
-        self.selected_sq  = None
+        self.selected     = None
         self.legal_moves  = []
         self.game_over    = False
         self.status       = 'Your turn'
-        self.status_color = COLOR_TEXT
+        self.status_color = WHITE_TEXT
 
-    def check_game_over(self, color_to_check):
+    # ── Game over check ───────────────────────────────────────────────────────
+
+    def check_game_over(self, color):
         has_moves = any(
-            True for m in self.chess_board.get_possible_moves(color_to_check)
-            if self._is_legal(m, color_to_check)
+            True for m in self.chess_board.get_possible_moves(color)
+            if self.is_legal(m, color)
         )
         if not has_moves:
-            if self.chess_board.is_in_check(color_to_check):
-                winner = 'You win! ♔' if color_to_check == pieces_module.Piece.BLACK else 'AI wins! ♚'
+            if self.chess_board.is_in_check(color):
+                winner = 'You win! ♔' if color == pieces.Piece.BLACK else 'AI wins! ♚'
                 self.status       = f'Checkmate — {winner}'
-                self.status_color = COLOR_STATUS_WIN
+                self.status_color = GREEN_TEXT
             else:
                 self.status       = 'Stalemate — Draw!'
-                self.status_color = COLOR_STATUS_AI
+                self.status_color = YELLOW_TEXT
             self.game_over = True
             return True
 
-        if self.chess_board.is_in_check(color_to_check):
-            who = 'You are' if color_to_check == pieces_module.Piece.WHITE else 'AI is'
+        if self.chess_board.is_in_check(color):
+            who = 'You are' if color == pieces.Piece.WHITE else 'AI is'
             self.status       = f'{who} in check!'
-            self.status_color = COLOR_CAPTURE
+            self.status_color = (255, 80, 80)
         else:
             self.status       = 'Your turn'
-            self.status_color = COLOR_TEXT
-
+            self.status_color = WHITE_TEXT
         return False
 
-    def _is_legal(self, move, color):
-        copy = chessboard_module.Board.clone(self.chess_board)
+    def is_legal(self, move, color):
+        copy = chess_board.Board.clone(self.chess_board)
         copy.perform_move(move)
         return not copy.is_in_check(color)
 
-    def draw(self):
+    def draw(self, mx, my):
         self.draw_squares()
         self.draw_highlights()
         self.draw_pieces()
         self.draw_status_bar()
         self.draw_coordinates()
+        if self.promo_pending:
+            self.draw_promo_popup(mx, my)
         pygame.display.flip()
 
     def draw_squares(self):
-        for x in range(BOARD_SIZE):
-            for y in range(BOARD_SIZE):
-                color = COLOR_LIGHT if (x + y) % 2 == 0 else COLOR_DARK
-                px, py = board_to_pixel(x, y)
-                pygame.draw.rect(self.screen, color, (px, py, SQUARE_SIZE, SQUARE_SIZE))
+        for x in range(8):
+            for y in range(8):
+                color = LIGHT if (x + y) % 2 == 0 else DARK
+                px, py = to_pixel(x, y)
+                pygame.draw.rect(self.screen, color, (px, py, SQUARE, SQUARE))
 
     def draw_highlights(self):
-        # Last move highlight
+        # Last move
         if self.last_move:
-            fx, fy, tx, ty = self.last_move
-            for (hx, hy) in [(fx, fy), (tx, ty)]:
-                px, py = board_to_pixel(hx, hy)
-                s = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
-                s.fill((205, 210, 80, 120))
-                self.screen.blit(s, (px, py))
+            for hx, hy in [(self.last_move[0], self.last_move[1]),
+                           (self.last_move[2], self.last_move[3])]:
+                s = pygame.Surface((SQUARE, SQUARE), pygame.SRCALPHA)
+                s.fill(LAST_COLOR)
+                self.screen.blit(s, to_pixel(hx, hy))
 
         # Selected square
-        if self.selected_sq:
-            px, py = board_to_pixel(*self.selected_sq)
-            s = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
-            s.fill((20, 200, 80, 160))
-            self.screen.blit(s, (px, py))
+        if self.selected:
+            s = pygame.Surface((SQUARE, SQUARE), pygame.SRCALPHA)
+            s.fill(SEL_COLOR)
+            self.screen.blit(s, to_pixel(*self.selected))
 
         # King in check
-        for color in [pieces_module.Piece.WHITE, pieces_module.Piece.BLACK]:
+        for color in [pieces.Piece.WHITE, pieces.Piece.BLACK]:
             if self.chess_board.is_in_check(color):
-                for x in range(BOARD_SIZE):
-                    for y in range(BOARD_SIZE):
+                for x in range(8):
+                    for y in range(8):
                         p = self.chess_board.get_piece(x, y)
-                        if p != 0 and p.color == color and p.piece_type == pieces_module.King.PIECE_TYPE:
-                            px, py = board_to_pixel(x, y)
-                            s = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
-                            s.fill((230, 30, 30, 180))
-                            self.screen.blit(s, (px, py))
+                        if p != 0 and p.color == color and p.piece_type == pieces.King.PIECE_TYPE:
+                            s = pygame.Surface((SQUARE, SQUARE), pygame.SRCALPHA)
+                            s.fill(CHECK_COLOR)
+                            self.screen.blit(s, to_pixel(x, y))
 
         # Legal move dots
         for move in self.legal_moves:
-            px, py = board_to_pixel(move.xto, move.yto)
-            cx = px + SQUARE_SIZE // 2
-            cy = py + SQUARE_SIZE // 2
+            px, py = to_pixel(move.xto, move.yto)
+            cx, cy = px + SQUARE // 2, py + SQUARE // 2
             target = self.chess_board.get_piece(move.xto, move.yto)
-            if target != 0:
-                # Capture: draw a ring
-                pygame.draw.circle(self.screen, COLOR_CAPTURE, (cx, cy), SQUARE_SIZE // 2 - 4, 5)
+            if target != 0 or move.is_en_passant:
+                pygame.draw.circle(self.screen, CAPTURE_COLOR, (cx, cy), SQUARE // 2 - 4, 5)
             else:
-                # Quiet move: draw a small dot
-                pygame.draw.circle(self.screen, COLOR_MOVE_DOT, (cx, cy), SQUARE_SIZE // 8)
+                pygame.draw.circle(self.screen, DOT_COLOR, (cx, cy), SQUARE // 8)
 
     def draw_pieces(self):
-        for x in range(BOARD_SIZE):
-            for y in range(BOARD_SIZE):
+        for x in range(8):
+            for y in range(8):
                 piece = self.chess_board.get_piece(x, y)
                 if piece == 0:
                     continue
                 symbol = UNICODE.get((piece.color, piece.piece_type), '?')
-                px, py = board_to_pixel(x, y)
+                px, py = to_pixel(x, y)
 
-                # Shadow
                 shadow = self.piece_font.render(symbol, True, (0, 0, 0))
                 self.screen.blit(shadow, (px + 5 + 2, py + 4 + 2))
 
-                # Piece
-                color  = (255, 255, 255) if piece.color == pieces_module.Piece.WHITE else (30, 30, 30)
-                text   = self.piece_font.render(symbol, True, color)
+                color = (255, 255, 255) if piece.color == pieces.Piece.WHITE else (30, 30, 30)
+                text  = self.piece_font.render(symbol, True, color)
                 self.screen.blit(text, (px + 5, py + 4))
 
     def draw_status_bar(self):
-        # Dark bar at the bottom — drawn over the last rank row
-        bar_h = 36
-        bar_y = WINDOW_HEIGHT - bar_h
-        pygame.draw.rect(self.screen, COLOR_TEXT_BG, (0, bar_y, WINDOW_WIDTH, bar_h))
+        pygame.draw.rect(self.screen, BAR_BG, (0, BOARD_PX, WIN_W, STATUS_H))
         text = self.status_font.render(self.status, True, self.status_color)
-        self.screen.blit(text, (12, bar_y + 7))
-
-        # Hints on the right
-        hint = self.label_font.render('U=undo  R=restart  Q=quit', True, (160, 160, 160))
-        self.screen.blit(hint, (WINDOW_WIDTH - hint.get_width() - 10, bar_y + 10))
+        self.screen.blit(text, (12, BOARD_PX + 11))
+        hint = self.label_font.render('U=undo  R=restart  Q=quit', True, GREY_TEXT)
+        self.screen.blit(hint, (WIN_W - hint.get_width() - 10, BOARD_PX + 14))
 
     def draw_coordinates(self):
-        cols  = 'ABCDEFGH'
-        pad   = 4
-        for i in range(BOARD_SIZE):
-            # Column letters (A–H) along the bottom edge
-            col_label = self.label_font.render(cols[i], True, (80, 80, 80))
-            px        = i * SQUARE_SIZE + SQUARE_SIZE // 2 - col_label.get_width() // 2
-            self.screen.blit(col_label, (px, WINDOW_HEIGHT - 36 - col_label.get_height() - pad))
+        cols = 'ABCDEFGH'
+        pad  = 4
+        for i in range(8):
+            col = self.label_font.render(cols[i], True, (100, 100, 100))
+            px  = i * SQUARE + SQUARE // 2 - col.get_width() // 2
+            self.screen.blit(col, (px, BOARD_PX - col.get_height() - pad))
 
-            # Row numbers (1–8) along the left edge
-            row_label = self.label_font.render(str(i + 1), True, (80, 80, 80))
-            py        = (7 - i) * SQUARE_SIZE + SQUARE_SIZE // 2 - row_label.get_height() // 2
-            self.screen.blit(row_label, (pad, py))
+            row = self.label_font.render(str(i + 1), True, (100, 100, 100))
+            py  = (7 - i) * SQUARE + SQUARE // 2 - row.get_height() // 2
+            self.screen.blit(row, (pad, py))
 
 if __name__ == '__main__':
     ChessGUI().run()
