@@ -5,6 +5,9 @@ class Move:
         self.yfrom = yfrom
         self.xto   = xto
         self.yto   = yto
+        self.is_en_passant = False
+        self.ep_capture_pos = None
+        self.promotion_piece = None
 
     # Returns true if this move goes to the same squares as the other move.
     def equals(self, other_move):

@@ -96,6 +96,13 @@ class Pawn(Piece):
             if target != 0 and target.color != self.color:
                 moves.append(Move(self.x, self.y, self.x + dx, self.y + direction))
 
+            # En passant
+            if board.ep_target and (self.x + dx, self.y + direction) == board.ep_target:
+                ep_move = Move(self.x, self.y, self.x + dx, self.y + direction)
+                ep_move.is_en_passant  = True
+                ep_move.ep_capture_pos = (self.x + dx, self.y)
+                moves.append(ep_move)
+
         return moves
 
     def clone(self):

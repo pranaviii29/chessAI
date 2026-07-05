@@ -7,9 +7,11 @@ class Board:
     WIDTH  = 8
     HEIGHT = 8
 
-    def __init__(self, grid, king_moved):
+    def __init__(self, grid, king_moved,ep_target=None):
         self.grid       = grid          # grid[x][y] = Piece or 0
         self.king_moved = king_moved    # {WHITE: bool, BLACK: bool}
+        self.ep_target  = ep_target
+
 
     # Creates a deep copy of the given board.
     @classmethod
@@ -20,7 +22,7 @@ class Board:
                 piece = other.grid[x][y]
                 if piece != 0:
                     grid[x][y] = piece.clone()
-        return cls(grid, dict(other.king_moved))
+        return cls(grid, dict(other.king_moved),other.ep_target)
 
     # Creates a new board with pieces in the starting position.
     @classmethod
@@ -82,12 +84,23 @@ class Board:
     # Applies the move to the board.
     def perform_move(self, move):
         piece = self.grid[move.xfrom][move.yfrom]
+        # En passant: remove the captured pawn
+        if move.is_en_passant and move.ep_capture_pos:
+            cx, cy = move.ep_capture_pos
+            self.grid[cx][cy] = 0
         self.move_piece(piece, move.xto, move.yto)
 
-        # Promote pawn to queen when it reaches the other end.
+        # Update en passant target for next move
+        if piece.piece_type == pieces.Pawn.PIECE_TYPE and abs(move.yto - move.yfrom) == 2:
+            direction = 1 if piece.color == pieces.Piece.BLACK else -1
+            self.ep_target = (piece.x, piece.y - direction)
+        else:
+            self.ep_target = None
+        # Promote pawn — use player's chosen piece or default to Queen
         if piece.piece_type == pieces.Pawn.PIECE_TYPE:
             if piece.y == 0 or piece.y == Board.HEIGHT - 1:
-                self.grid[piece.x][piece.y] = pieces.Queen(piece.x, piece.y, piece.color)
+                promo_class = move.promotion_piece if move.promotion_piece else pieces.Queen
+                self.grid[piece.x][piece.y] = promo_class(piece.x, piece.y, piece.color)
 
         # Handle king moves and castling.
         if piece.piece_type == pieces.King.PIECE_TYPE:
