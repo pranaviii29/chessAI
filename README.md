@@ -215,10 +215,8 @@ Note: En passant is not yet implemented
 
 ## Future Work
 
-- **En passant** — the one missing rule; will be added to `pieces.py` in the `Pawn` class
 - **Difficulty selector** — an Easy / Medium / Hard screen before the game starts that adjusts the search depth automatically
 - **Move history panel** — a sidebar showing all moves played in standard chess notation (e.g. `1. e4 e5 2. Nf3`)
-- **Promotion choice** — a popup letting the player choose Queen, Rook, Bishop, or Knight on pawn promotion instead of auto-promoting to Queen
 - **Iterative deepening** — search depth 1 → 2 → 3 within a fixed time budget instead of a fixed depth, which makes the AI faster and more consistent
 - **Opening book** — a small database of common opening moves so the AI plays standard openings in the first few moves instead of calculating from scratch
 - **Two-player mode** — let two humans play against each other on the same machine
