@@ -208,8 +208,8 @@ ai_move = AI.get_best_move(chessboard, depth=3)
 | Check detection 
 | Checkmate detection  
 | Stalemate detection  
-
-Note: En passant is not yet implemented 
+| En Passant
+| Promotion choice
 
 ---
 
