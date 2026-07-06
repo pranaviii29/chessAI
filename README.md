@@ -209,7 +209,7 @@ ai_move = AI.get_best_move(chessboard, depth=3)
 | Checkmate detection  
 | Stalemate detection  
 | En Passant
-| Promotion choice
+| Pawn promotion choice
 
 ---
 
